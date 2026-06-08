@@ -9,6 +9,8 @@ include "envcommon" {
 }
 
 inputs = {
-  extra_tags = include.root.locals.default_tags
-  tenant_id  = include.root.locals.customer_name
+  extra_tags = merge(include.root.locals.default_tags, {
+    "cost-center" = "acme-ops"
+  })
+  tenant_id = include.root.locals.customer_name
 }

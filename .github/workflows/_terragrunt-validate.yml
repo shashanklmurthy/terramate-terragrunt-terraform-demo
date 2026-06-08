@@ -5,8 +5,15 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    # PR heads are intentionally behind/ahead of main; git-out-of-sync is for local dev.
+    env:
+      TM_DISABLE_SAFEGUARDS: git-out-of-sync
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+          fetch-depth: 1
+      - uses: ./.github/actions/checkout-terramate
       - uses: ./.github/actions/setup-asdf
       - name: Initialize Terragrunt in all stacks
         run: terramate run --parallel 10 -- terragrunt init -input=false -lock-timeout=5m

@@ -24,13 +24,3 @@ resource "random_string" "token" {
     id = module.labels.id
   }
 }
-
-resource "local_file" "artifact" {
-  filename = "${var.output_dir}/${module.labels.id}.json"
-  content = jsonencode({
-    id       = module.labels.id
-    tags     = module.labels.tags
-    token    = random_string.token.result
-    upstream = var.upstream
-  })
-}

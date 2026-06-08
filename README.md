@@ -44,7 +44,9 @@ modules/artifact  (layered: labels + random_string + local_file)
 | **Multi-tenant shared** | `live/shared/us-east-1/dev/*` | Shared platform brought up once for all tenants | `platform` → `app-layer` → `analytics` |
 | **Single-tenant dedicated** | `live/dedicated/<tenant>/us-east-1/dev/tenant-instance` | One Terragrunt module = one tenant instance | None (isolated per tenant) |
 
-Each chained shared unit produces a JSON artifact in `.artifacts/` and exposes a `summary` output.
+Each chained shared unit exposes a `summary` output (consumed by Terragrunt `dependency` blocks).
+Committed JSON under `baseline/.artifacts/` is a frozen demo snapshot only — the module does not
+manage `local_file` resources (avoids `+ create` plan noise from content-hash replacement in PR comments).
 The next layer consumes that summary through a Terragrunt `dependency` block.
 
 Dedicated tenant instances embed `tenant_id` in resource IDs (e.g. `demo-acme-dev-tenant-instance`)
@@ -217,10 +219,28 @@ Generated files land in the **Terragrunt cache** working directory:
 
 State path: `<repo>/.local-state/<path_relative_to_include()>/terraform.tfstate`
 
-## Why `.artifacts/` and `.local-state/` are gitignored
+## Demo baseline (local + remote PR)
 
-Since Terramate v0.11, **untracked and uncommitted files count as changes**. Runtime artifacts must
-not land in tracked directories or change detection becomes meaningless.
+Applied state and artifacts live under **`baseline/`** (committed). Runtime paths
+`.local-state/` and `.artifacts/` are gitignored.
+
+**Local demo** — seed before plan:
+
+```bash
+cp -R baseline/.local-state .local-state
+cp -R baseline/.artifacts .artifacts
+terramate run --changed --include-all-dependents --git-change-base main -- terragrunt plan -input=false
+```
+
+**Remote PR demo** — two steps:
+
+1. Merge a **bootstrap PR** that adds `baseline/` (current applied state) to `main`.
+2. Open a **demo PR** that edits e.g. `live/shared/us-east-1/dev/platform/terragrunt.hcl`.
+
+`pr-preview` seeds `baseline/` into runtime paths, runs `terramate list --changed
+--git-change-base origin/main`, and posts incremental plan comments on the PR.
+
+To refresh the baseline after re-applying locally: update files under `baseline/` and commit.
 
 ## CI workflows
 
@@ -233,11 +253,15 @@ not land in tracked directories or change detection becomes meaningless.
 
 **PR comments:** Plan output is captured per changed stack (e.g. `live-shared-us-east-1-dev-platform.txt`)
 and posted with `TF_WORKSPACE` set to the stack path (e.g. `live/shared/us-east-1/dev/platform`).
+`terraform-pr-commenter` may post **two comments per stack** (resource plan + `Changes to Outputs:`).
+Tag-only demo edits should show **output changes only** (e.g. `platform-tier`, `cost-center`), not
+`+ create` for artifact files.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
+| `git-out-of-sync` / unable to reach `origin/main` in CI | PR branches are not rebased on `main`; CI sets `TM_DISABLE_SAFEGUARDS=git-out-of-sync`. Locally: `git fetch origin main && git rebase origin/main` |
 | `Error: repository has untracked files` | Commit or stash; Terramate refuses to run with dirty git |
 | `dependency ... has no outputs` | Run full apply once, or rely on `mock_outputs` for plan |
 | Every stack always "changed" | Something writes into a tracked dir — check `.gitignore` |

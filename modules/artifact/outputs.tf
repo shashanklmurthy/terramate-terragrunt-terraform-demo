@@ -10,8 +10,13 @@ output "tags" {
   value = module.labels.tags
 }
 
+locals {
+  # Repo-relative path — portable across laptops and CI runners.
+  artifact_rel_path = ".artifacts/${module.labels.id}.json"
+}
+
 output "artifact_path" {
-  value = local_file.artifact.filename
+  value = local.artifact_rel_path
 }
 
 output "summary" {
@@ -19,6 +24,6 @@ output "summary" {
   value = {
     id            = module.labels.id
     token         = random_string.token.result
-    artifact_path = local_file.artifact.filename
+    artifact_path = local.artifact_rel_path
   }
 }

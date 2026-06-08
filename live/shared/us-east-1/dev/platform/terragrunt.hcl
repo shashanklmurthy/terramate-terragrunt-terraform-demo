@@ -9,5 +9,7 @@ include "envcommon" {
 }
 
 inputs = {
-  extra_tags = include.root.locals.default_tags
+  extra_tags = merge(include.root.locals.default_tags, {
+    "platform-tier" = "baseline"
+  })
 }

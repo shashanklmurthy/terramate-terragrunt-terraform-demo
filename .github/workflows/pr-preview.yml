@@ -31,11 +31,17 @@ jobs:
         --git-change-base origin/${{ github.base_ref }}
       PLAN_ARTIFACT_DIR: ${{ github.workspace }}/.github/plan-artifacts
       TG_TF_FORWARD_STDOUT: true
+      # PR heads are intentionally behind/ahead of main; git-out-of-sync is for local dev.
+      TM_DISABLE_SAFEGUARDS: git-out-of-sync
     steps:
+      # Terramate --changed needs full history (https://terramate.io/docs/cli/automation/github-actions).
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.head_ref || github.ref }}
           fetch-depth: 0
+
+      # Seed runtime state and artifacts from baseline/ for demoing incremental plans.
+      - uses: ./.github/actions/seed-demo-baseline
 
       - uses: ./.github/actions/setup-asdf
 

@@ -1,18 +1,17 @@
-# Terraform / Terragrunt working state — never commit
+# Terraform / Terragrunt working state — never commit runtime copies
 # Local .terraform directories
 **/.terraform/
 **/.terragrunt-cache/
-# .tfstate files
+# .tfstate files (committed baseline lives under baseline/)
 *.tfstate
 *.tfstate.*
+!baseline/**/terraform.tfstate
 .terraform.lock.hcl
 
-# Local backend state for this demo only
-.local-state/
-
-# local_file artifacts written by the artifact module
-.artifacts/*
-!.artifacts/.gitkeep
+# Runtime paths at repo root — seeded from baseline/ locally or in CI
+/.local-state/
+/.artifacts/*
+!/.artifacts/.gitkeep
 
 # misc
 .DS_Store
