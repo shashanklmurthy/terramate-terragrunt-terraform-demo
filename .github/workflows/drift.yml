@@ -22,7 +22,7 @@ jobs:
         run: |
           cat > /tmp/drift-check.sh <<'SCRIPT'
           #!/usr/bin/env bash
-          stack="$(basename "$PWD")"
+          stack="${PWD#${GITHUB_WORKSPACE}/}"
           if ! terragrunt init -input=false >/dev/null 2>&1; then
             echo "drift-result:${stack}:1"
             exit 0
@@ -40,12 +40,12 @@ jobs:
             case "$line" in
               drift-result:*)
                 stack="${line#drift-result:}"
-                stack_name="${stack%%:*}"
+                stack_path="${stack%%:*}"
                 code="${stack##*:}"
                 case "$code" in
                   0) ;;
-                  2) drifted+=("live/${stack_name}") ;;
-                  *) errored+=("live/${stack_name}") ;;
+                  2) drifted+=("${stack_path}") ;;
+                  *) errored+=("${stack_path}") ;;
                 esac
                 ;;
             esac
