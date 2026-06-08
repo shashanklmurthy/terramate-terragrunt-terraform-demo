@@ -10,6 +10,6 @@ include "envcommon" {
 
 inputs = {
   extra_tags = merge(include.root.locals.default_tags, {
-    "platform-tier" = "premium"
+    "platform-tier" = "platinum"
   })
 }
