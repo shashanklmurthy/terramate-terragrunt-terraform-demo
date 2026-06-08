@@ -12,7 +12,7 @@ jobs:
   detect:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea53d8efaa4189211918 # v4.2.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup-asdf
@@ -20,19 +20,37 @@ jobs:
       - name: Detect drift
         id: detect
         run: |
+          cat > /tmp/drift-check.sh <<'SCRIPT'
+          #!/usr/bin/env bash
+          stack="$(basename "$PWD")"
+          if ! terragrunt init -input=false >/dev/null 2>&1; then
+            echo "drift-result:${stack}:1"
+            exit 0
+          fi
+          code=0
+          terragrunt plan -detailed-exitcode -lock=false -input=false >/dev/null 2>&1 || code=$?
+          echo "drift-result:${stack}:${code}"
+          exit 0
+          SCRIPT
+          chmod +x /tmp/drift-check.sh
+
           drifted=()
           errored=()
-          for stack in $(terramate list); do
-            code=0
-            ( cd "$stack" \
-                && terragrunt init -input=false >/dev/null \
-                && terragrunt plan -detailed-exitcode -lock=false -input=false >/dev/null ) || code=$?
-            case "$code" in
-              0) : ;;
-              2) drifted+=("$stack") ;;
-              *) errored+=("$stack") ;;
+          while IFS= read -r line; do
+            case "$line" in
+              drift-result:*)
+                stack="${line#drift-result:}"
+                stack_name="${stack%%:*}"
+                code="${stack##*:}"
+                case "$code" in
+                  0) ;;
+                  2) drifted+=("live/${stack_name}") ;;
+                  *) errored+=("live/${stack_name}") ;;
+                esac
+                ;;
             esac
-          done
+          done < <(terramate run --continue-on-error --parallel 1 -- /tmp/drift-check.sh 2>&1)
+
           {
             echo "## Drift report"
             echo ""

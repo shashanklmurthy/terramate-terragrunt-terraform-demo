@@ -188,14 +188,14 @@ compare against the wrong ref or include extra stacks from uncommitted files.
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `pr-preview` | PR → `main` | fmt + hclfmt + checkov; Terramate matrix of changed stacks → parallel plan |
+| `pr-preview` | PR → `main` | fmt + hclfmt + checkov; one `terramate run` plan; **one sticky PR comment per stack** |
 | `deploy` | push → `main` | single ordered `terramate run` apply (changed + dependents) |
-| `drift` | daily cron | per-stack `plan -detailed-exitcode`; fails on drift |
+| `drift` | daily cron | `terramate run` + `plan -detailed-exitcode` on every stack; fails on drift |
 | `reconcile` | daily cron | ordered apply of `--tags reconcile` stacks |
 
-**Plan vs apply split:** PR plans use a GitHub Actions **matrix** (parallel, per-stack isolation;
-`mock_outputs` cover deps). Merge applies use a **single** `terramate run` so
-foundation → application → reporting order is preserved.
+**PR comments:** One summary comment plus one sticky comment per changed stack (ASCII plan).
+Comments for stacks that drop out of the change set are removed on the next run. Rendered plan
+UI requires [Terramate Cloud](https://terramate.io/docs/cloud/integrations/github) + `--sync-preview`.
 
 Drift detection in CI demonstrates the correct workflow shape but won't catch real drift until
 `root.hcl` uses a persistent remote backend (state survives between runs).

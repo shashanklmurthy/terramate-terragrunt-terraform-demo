@@ -102,12 +102,13 @@ change-detection demo would be meaningless. We write artifacts to `.artifacts/` 
 
 ## CI integration
 
-- **PR / plan** — `pr-preview` uses Terramate to build a parallel matrix of changed stacks +
-  dependents, then calls `_plan-or-apply-env` per stack. Ordering is not required for plan because
-  `mock_outputs` cover unapplied dependencies.
+- **PR / plan** — `pr-preview` runs a single `terramate run --changed --include-all-dependents`
+  for init/validate/plan, then posts **one sticky PR comment per stack** (plus a short summary
+  comment). No Terramate Cloud required; rendered previews need Cloud + `--sync-preview`.
 - **Merge / apply** — `deploy` uses a single `terramate run` so foundation → application →
   reporting order is preserved.
-- **Drift** — `drift` runs `plan -detailed-exitcode` per stack and fails on drift. With the local
+- **Drift** — `drift` uses `terramate run` across all stacks with `plan -detailed-exitcode` and
+  fails on drift. With the local
   backend, CI demonstrates the workflow shape but won't catch real drift until state is persisted
   remotely between runs.
 - **Reconcile** — `reconcile` runs `terramate run --tags reconcile` (foundation + application only;

@@ -5,14 +5,13 @@
 #   - a tag convention passed down to modules as inputs (local-provider analogue of AWS default_tags)
 
 locals {
-  # Convention tags, mirrored from the org's root.hcl pattern. With local/random providers there is no
+  # Convention tags, mirrored from the root.hcl pattern. With local/random providers there is no
   # provider-level default_tags, so we inject these into modules as inputs instead (see live/* inputs).
   default_tags = {
     "owner:team"          = "platform"
     "owner:team:email"    = "devops@example.com"
     "iac:name"            = "terraform+terragrunt+terramate"
     "managed:via:project" = "terramate-terragrunt-terraform-demo"
-    "backup"              = "false"
   }
 }
 
