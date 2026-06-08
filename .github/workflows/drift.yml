@@ -1,0 +1,60 @@
+name: drift
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea53d8efaa4189211918 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: hashicorp/setup-terraform@b9cd54cb3e349558e5125b2eab9ebb7ad426cb48 # v3.1.2
+        with:
+          terraform_version: "1.11.4"
+          terraform_wrapper: false
+      - name: Setup Terragrunt
+        run: |
+          curl -fsSL -o /usr/local/bin/terragrunt \
+            "https://github.com/gruntwork-io/terragrunt/releases/download/v0.77.22/terragrunt_linux_amd64"
+          chmod +x /usr/local/bin/terragrunt
+      - uses: terramate-io/terramate-action@b5d1461d435ba454179045ea062bbecb32738913 # v2
+
+      - name: Detect drift
+        id: detect
+        run: |
+          drifted=()
+          errored=()
+          for stack in $(terramate list); do
+            code=0
+            ( cd "$stack" \
+                && terragrunt init -input=false >/dev/null \
+                && terragrunt plan -detailed-exitcode -lock=false -input=false >/dev/null ) || code=$?
+            case "$code" in
+              0) : ;;
+              2) drifted+=("$stack") ;;
+              *) errored+=("$stack") ;;
+            esac
+          done
+          {
+            echo "## Drift report"
+            echo ""
+            echo "| state | stacks |"
+            echo "|-------|--------|"
+            echo "| drifted | ${drifted[*]:-none} |"
+            echo "| errored | ${errored[*]:-none} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "drifted=${drifted[*]:-}" >> "$GITHUB_OUTPUT"
+          echo "count=${#drifted[@]}"   >> "$GITHUB_OUTPUT"
+
+      - name: Fail run if drift found
+        if: steps.detect.outputs.count != '0'
+        run: |
+          echo "Drift detected in: ${{ steps.detect.outputs.drifted }}"
+          exit 1

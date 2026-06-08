@@ -1,0 +1,47 @@
+name: pr-preview
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  fmt:
+    uses: ./.github/workflows/_terraform-fmt.yml
+  hclfmt:
+    uses: ./.github/workflows/_terragrunt-hclfmt.yml
+  checkov:
+    uses: ./.github/workflows/_checkov.yml
+
+  set-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.tm.outputs.matrix }}
+      has_changes: ${{ steps.tm.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea53d8efaa4189211918 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: terramate-io/terramate-action@b5d1461d435ba454179045ea062bbecb32738913 # v2
+      - id: tm
+        run: |
+          mapfile -t dirs < <(terramate list --changed --include-all-dependents \
+            --git-change-base "origin/${{ github.base_ref }}" --run-order)
+          if [ "${#dirs[@]}" -eq 0 ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo 'matrix={"working-dir":[]}' >> "$GITHUB_OUTPUT"
+          else
+            json="$(printf '%s\n' "${dirs[@]}" | jq -R . | jq -cs .)"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "matrix={\"working-dir\":${json}}" >> "$GITHUB_OUTPUT"
+          fi
+
+  plan:
+    needs: set-matrix
+    if: needs.set-matrix.outputs.has_changes == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/_plan-or-apply-env.yml
+    with:
+      working-dir: ${{ matrix.working-dir }}
+      environment: dev
+      apply: false
