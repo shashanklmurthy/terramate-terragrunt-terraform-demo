@@ -11,6 +11,8 @@ jobs:
     uses: ./.github/workflows/_terraform-fmt.yml
   hclfmt:
     uses: ./.github/workflows/_terragrunt-hclfmt.yml
+  validate:
+    uses: ./.github/workflows/_terragrunt-validate.yml
   checkov:
     uses: ./.github/workflows/_checkov.yml
 
@@ -65,14 +67,6 @@ jobs:
             $TM_CHANGED \
             -- \
             terragrunt init -input=false -lock-timeout=5m
-
-      - name: Validate Terragrunt in changed stacks
-        if: steps.list.outputs.has_stacks == 'true'
-        run: |
-          terramate run \
-            $TM_CHANGED \
-            -- \
-            terragrunt validate
 
       - name: Plan changed stacks and capture output
         if: steps.list.outputs.has_stacks == 'true'
