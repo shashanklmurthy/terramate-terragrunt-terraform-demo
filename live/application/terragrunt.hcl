@@ -10,7 +10,7 @@ terraform {
 # DATA dependency on foundation. This is what Terramate parses to (a) order runs and
 # (b) treat application as a dependent of foundation for --include-all-dependents.
 dependency "foundation" {
-   config_path = "../foundation"
+  config_path = "../foundation"
 
   # Allow plan/validate to run before foundation has been applied (no real state yet).
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan", "fmt", "show", "output"]

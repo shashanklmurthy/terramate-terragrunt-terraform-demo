@@ -1,0 +1,13 @@
+# Format Terraform modules and Terragrunt HCL before commit.
+# Install: pre-commit install
+# Run all: pre-commit run --all-files
+repos:
+  - repo: local
+    hooks:
+      - id: fmt
+        name: terraform & terragrunt fmt
+        entry: .github/hooks/fmt.sh
+        language: script
+        files: \.(tf|hcl)$
+        exclude: ^(.*/\.terragrunt-cache/|.*\.terraform\.lock\.hcl)$
+        pass_filenames: false

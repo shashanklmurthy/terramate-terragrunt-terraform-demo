@@ -178,8 +178,21 @@ In CI the git base differs: PRs use `origin/<base_ref>`, merge deploy uses `HEAD
 
 ```bash
 terraform fmt -check -recursive modules/
-terragrunt hcl fmt --check
+terramate run -- terragrunt hcl fmt --check
 ```
+
+### Pre-commit hooks
+
+Auto-format on commit (requires [pre-commit](https://pre-commit.com/#install) and tools from `.tool-versions` on `PATH`):
+
+```bash
+pre-commit install          # once per clone
+pre-commit run --all-files  # optional: format everything now
+```
+
+Hooks run `.github/hooks/fmt.sh`: `terraform fmt -recursive modules/`, then
+`terramate run -- terragrunt hcl fmt` across all `live/` stacks (git safeguards disabled so
+formatting works on a dirty working tree).
 
 ### Drift and reconcile (local)
 
