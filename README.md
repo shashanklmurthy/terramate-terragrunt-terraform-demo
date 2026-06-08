@@ -44,7 +44,9 @@ modules/artifact  (layered: labels + random_string + local_file)
 | **Multi-tenant shared** | `live/shared/us-east-1/dev/*` | Shared platform brought up once for all tenants | `platform` → `app-layer` → `analytics` |
 | **Single-tenant dedicated** | `live/dedicated/<tenant>/us-east-1/dev/tenant-instance` | One Terragrunt module = one tenant instance | None (isolated per tenant) |
 
-Each chained shared unit produces a JSON artifact in `.artifacts/` and exposes a `summary` output.
+Each chained shared unit exposes a `summary` output (consumed by Terragrunt `dependency` blocks).
+Committed JSON under `baseline/.artifacts/` is a frozen demo snapshot only — the module does not
+manage `local_file` resources (avoids `+ create` plan noise from content-hash replacement in PR comments).
 The next layer consumes that summary through a Terragrunt `dependency` block.
 
 Dedicated tenant instances embed `tenant_id` in resource IDs (e.g. `demo-acme-dev-tenant-instance`)
@@ -251,9 +253,9 @@ To refresh the baseline after re-applying locally: update files under `baseline/
 
 **PR comments:** Plan output is captured per changed stack (e.g. `live-shared-us-east-1-dev-platform.txt`)
 and posted with `TF_WORKSPACE` set to the stack path (e.g. `live/shared/us-east-1/dev/platform`).
-`terraform-pr-commenter` posts **two comments per stack** when a plan contains both resource changes and a
-`Changes to Outputs:` section — that is expected. `artifact_path` in outputs uses repo-relative paths
-(`.artifacts/<id>.json`) so CI does not noise the comments with laptop vs runner absolute paths.
+`terraform-pr-commenter` may post **two comments per stack** (resource plan + `Changes to Outputs:`).
+Tag-only demo edits should show **output changes only** (e.g. `platform-tier`, `cost-center`), not
+`+ create` for artifact files.
 
 ## Troubleshooting
 
