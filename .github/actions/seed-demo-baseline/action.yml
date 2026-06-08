@@ -1,0 +1,17 @@
+# Copy committed baseline state/artifacts into runtime paths before plan/apply in CI.
+name: Seed demo baseline
+description: Restore .local-state and .artifacts from baseline/ for incremental plans
+runs:
+  using: composite
+  steps:
+    - name: Seed runtime state and artifacts from baseline/
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ ! -d baseline/.local-state ] || [ ! -d baseline/.artifacts ]; then
+          echo "baseline/.local-state and baseline/.artifacts must exist on this ref" >&2
+          exit 1
+        fi
+        rm -rf .local-state .artifacts
+        cp -R baseline/.local-state .local-state
+        cp -R baseline/.artifacts .artifacts

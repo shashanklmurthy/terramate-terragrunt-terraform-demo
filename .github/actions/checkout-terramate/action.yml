@@ -1,0 +1,32 @@
+# Fetch the default branch (and optionally deepen history) after actions/checkout.
+# Local actions cannot run before checkout — callers must checkout first.
+name: Fetch base branch for Terramate
+description: Fetch origin/main (or PR base) for Terramate git safeguards and --changed
+inputs:
+  history_depth:
+    description: >-
+      Commits to fetch on the base branch. Use 1 for lint/validate jobs.
+      Use 100 (or higher) when running Terramate --changed --git-change-base.
+    required: false
+    default: "1"
+runs:
+  using: composite
+  steps:
+    - name: Fetch base branch for Terramate
+      shell: bash
+      env:
+        HISTORY_DEPTH: ${{ inputs.history_depth }}
+      run: |
+        set -euo pipefail
+        base_ref="${{ github.base_ref }}"
+        if [ -z "$base_ref" ]; then
+          base_ref="main"
+        fi
+        head_ref="${{ github.head_ref }}"
+
+        git fetch --no-tags --prune --depth="${HISTORY_DEPTH}" origin "${base_ref}"
+
+        # Deepen the PR branch too when change detection needs a merge-base.
+        if [ "${HISTORY_DEPTH}" -gt 1 ] && [ -n "${head_ref}" ]; then
+          git fetch --no-tags --prune --depth="${HISTORY_DEPTH}" origin "${head_ref}"
+        fi

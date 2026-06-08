@@ -217,10 +217,28 @@ Generated files land in the **Terragrunt cache** working directory:
 
 State path: `<repo>/.local-state/<path_relative_to_include()>/terraform.tfstate`
 
-## Why `.artifacts/` and `.local-state/` are gitignored
+## Demo baseline (local + remote PR)
 
-Since Terramate v0.11, **untracked and uncommitted files count as changes**. Runtime artifacts must
-not land in tracked directories or change detection becomes meaningless.
+Applied state and artifacts live under **`baseline/`** (committed). Runtime paths
+`.local-state/` and `.artifacts/` are gitignored.
+
+**Local demo** — seed before plan:
+
+```bash
+cp -R baseline/.local-state .local-state
+cp -R baseline/.artifacts .artifacts
+terramate run --changed --include-all-dependents --git-change-base main -- terragrunt plan -input=false
+```
+
+**Remote PR demo** — two steps:
+
+1. Merge a **bootstrap PR** that adds `baseline/` (current applied state) to `main`.
+2. Open a **demo PR** that edits e.g. `live/shared/us-east-1/dev/platform/terragrunt.hcl`.
+
+`pr-preview` seeds `baseline/` into runtime paths, runs `terramate list --changed
+--git-change-base origin/main`, and posts incremental plan comments on the PR.
+
+To refresh the baseline after re-applying locally: update files under `baseline/` and commit.
 
 ## CI workflows
 
