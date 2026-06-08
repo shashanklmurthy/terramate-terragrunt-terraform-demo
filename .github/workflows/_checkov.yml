@@ -1,0 +1,19 @@
+# Scans the Terraform modules (the live/ dirs are pure Terragrunt HCL).
+name: _checkov
+on:
+  workflow_call:
+    inputs:
+      directory:
+        type: string
+        default: "modules"
+
+jobs:
+  checkov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
+      - uses: bridgecrewio/checkov-action@dfb51aed1b783289b0d3f255028e7a88d5e8caa1 #v12.3105.0
+        with:
+          directory: ${{ inputs.directory }}
+          framework: terraform
+          soft_fail: true

@@ -1,0 +1,60 @@
+# The `environment:` key is kept so
+# a protected GitHub Environment can act as the reviewer gate.
+# Tool versions come from .tool-versions via the setup-asdf composite action.
+name: _plan-or-apply-env
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        default: dev
+      working-dir:
+        required: true
+        type: string
+      apply:
+        type: boolean
+        default: false
+      lock:
+        type: boolean
+        default: true
+
+jobs:
+  terragrunt:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-asdf
+
+      - name: Terragrunt init
+        working-directory: ${{ inputs.working-dir }}
+        run: terragrunt init -input=false
+
+      - name: Terragrunt validate
+        if: ${{ inputs.apply != true }}
+        working-directory: ${{ inputs.working-dir }}
+        run: terragrunt validate
+
+      - name: Terragrunt plan
+        id: plan
+        working-directory: ${{ inputs.working-dir }}
+        run: terragrunt plan -out workspace.plan -lock=${{ inputs.lock }} -input=false
+
+      - name: Post plan (job summary)
+        if: always()
+        working-directory: ${{ inputs.working-dir }}
+        run: |
+          {
+            echo "### Plan — \`${{ inputs.working-dir }}\` (${{ inputs.environment }})"
+            echo '```'
+            terragrunt show -no-color workspace.plan 2>/dev/null || echo "(no plan)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Terragrunt apply
+        if: ${{ inputs.apply == true }}
+        working-directory: ${{ inputs.working-dir }}
+        run: terragrunt apply -auto-approve -input=false

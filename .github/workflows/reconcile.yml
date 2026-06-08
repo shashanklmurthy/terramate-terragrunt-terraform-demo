@@ -1,0 +1,17 @@
+name: reconcile
+on:
+  schedule:
+    - cron: "30 6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-asdf
+      - name: Reconcile tagged stacks (apply, in dependency order)
+        run: terramate run --tags reconcile -- terragrunt apply -auto-approve -lock=false -input=false
