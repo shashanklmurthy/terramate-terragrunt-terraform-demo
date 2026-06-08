@@ -33,6 +33,29 @@ live/standalone  (layer 0, no dependency on the chain above)
 Each chained unit produces a JSON artifact in `.artifacts/` and exposes a `summary` output. The next
 layer consumes that summary through a Terragrunt `dependency` block.
 
+## Mental model
+
+| Tool | Owns | Unit of work |
+|------|------|--------------|
+| Terraform | resource definitions | a *module* (`modules/*`) |
+| Terragrunt | per-environment wiring, DRY config, dependencies | a *unit* (`live/*/terragrunt.hcl`) |
+| Terramate | change detection + orchestration across units | a *stack* (`live/*/stack.tm.hcl`) |
+
+A Terragrunt **unit** and a Terramate **stack** are the same directory: `terragrunt.hcl` makes it
+deployable, `stack.tm.hcl` makes it orchestratable.
+
+### Data flow
+
+1. `live/foundation` runs `modules/artifact` (component = foundation). It outputs `summary`.
+2. `live/application` declares `dependency "foundation"` and feeds `dependency.foundation.outputs.summary`
+   into its own `upstream` input.
+3. `live/reporting` declares `dependency "application"` and feeds its summary in turn.
+4. `live/standalone` has **no** `dependency` blocks — independent of the chain above.
+
+`dependency` blocks do two things at once:
+- **Runtime:** Terragrunt fetches upstream outputs (`mock_outputs` cover plan-before-apply).
+- **Orchestration:** Terramate parses them to set `after` ordering and compute dependents.
+
 ## What each requirement maps to
 
 | Requirement | Where |
@@ -44,23 +67,21 @@ layer consumes that summary through a Terragrunt `dependency` block.
 
 ## Prerequisites
 
-Versions are pinned in [`.tool-versions`](.tool-versions) (single source of truth).
+All versions are pinned in [`.tool-versions`](.tool-versions) — the single source of truth for local
+and CI.
 
-| Tool | Local install | Version file |
-|---|---|---|
-| Terraform | [tfenv](https://github.com/tfutils/tfenv) | `.terraform-version` |
-| Terragrunt | [tgenv](https://github.com/cunymatthieu/tgenv) | `.terragrunt-version` |
-| Terramate | e.g. `brew install terramate` | `.tool-versions` only |
-
-Sync version files from `.tool-versions`, then install:
+| Tool | Local install |
+|---|---|
+| Terraform | [tfenv](https://github.com/tfutils/tfenv) |
+| Terragrunt | [tgenv](https://github.com/cunymatthieu/tgenv) |
+| Terramate | e.g. `brew install terramate` (no tfenv/tgenv plugin) |
 
 ```bash
-# write .terraform-version and .terragrunt-version (keep in sync with .tool-versions)
-awk '/^terraform /  {print $2}' .tool-versions > .terraform-version
-awk '/^terragrunt / {print $2}' .tool-versions > .terragrunt-version
+TF_VER=$(awk '/^terraform / {print $2}' .tool-versions)
+TG_VER=$(awk '/^terragrunt / {print $2}' .tool-versions)
 
-tfenv install && tfenv use
-tgenv install && tgenv use
+tfenv install "$TF_VER" && tfenv use "$TF_VER"
+tgenv install "$TG_VER" && tgenv use "$TG_VER"
 
 terraform version
 terragrunt --version
@@ -93,6 +114,28 @@ terramate list --run-order
 
 ls .artifacts/    # four JSON files after full apply
 ```
+
+## Change detection and ordering
+
+- `terramate list` / `run` with `--changed` selects stacks whose tracked files changed in git.
+- **By default, dependents are NOT pulled in.** Opt in with:
+  - `--include-all-dependents` — direct and transitive dependents
+  - `--include-direct-dependents` — immediate dependents only
+  - `--only-all-dependents` — dependents only (replaces the changed set)
+- Filters follow **data** dependencies (Terragrunt `dependency` blocks), not ordering-only hints
+  (`stack.before/after`). That's why units use real `dependency` blocks.
+- Execution order honors `after`. `standalone` has no `after` and nothing depends on it.
+
+Canonical change-driven command:
+
+```bash
+terramate run --changed --include-all-dependents -- terragrunt apply -auto-approve
+```
+
+In CI, add `--git-change-base origin/main` (PRs) or `HEAD^` (push to main).
+
+If your Terramate build is too old for `--include-all-dependents`, upgrade — or force stacks changed
+with `terramate trigger live/application` before `terramate run --changed`.
 
 ## Common commands
 
@@ -184,6 +227,39 @@ terramate list --changed --include-all-dependents --git-change-base main --run-o
 Always pass `--git-change-base` explicitly when testing on a branch — without it, Terramate may
 compare against the wrong ref or include extra stacks from uncommitted files.
 
+## Generated files (`root.hcl`)
+
+Because each unit sets `terraform.source`, generated files land in the **Terragrunt cache** working
+directory (not the unit dir):
+
+- `versions.tf` — required Terraform version + `random`/`local` providers
+- `provider.tf` — empty provider blocks
+- `backend.tf` — local backend; state path = `<repo>/.local-state/<path_relative_to_include()>/terraform.tfstate`
+- `stack_meta.tf` — generated `stack_path` output using `path_relative_to_include()`
+
+Inspect without applying:
+
+```bash
+cd live/application
+terragrunt init
+find .terragrunt-cache -name '*.tf' | xargs -I{} sh -c 'echo "== {} =="; cat {}'
+```
+
+## The `//` in `terraform.source`
+
+`source = "${get_repo_root()}/modules//artifact"`
+
+The `//` is the go-getter "subdir" separator. Terragrunt copies everything **before** `//`
+(`modules/`) into its cache, then uses the subdir **after** `//` (`artifact`) as the Terraform root.
+Without this, `modules/artifact`'s `module "labels" { source = "../labels" }` would escape the
+copied tree and fail.
+
+## Why `.artifacts/` and `.local-state/` are gitignored
+
+Since Terramate v0.11, **untracked and uncommitted files count as changes**. If `local_file` wrote
+artifacts into a tracked `live/*` directory, every stack would always look "changed" and the
+change-detection demo would be meaningless.
+
 ## CI workflows
 
 | Workflow | Trigger | What it does |
@@ -209,9 +285,4 @@ Drift detection in CI demonstrates the correct workflow shape but won't catch re
 | `dependency ... has no outputs` | Run full apply once, or rely on `mock_outputs` for plan |
 | Every stack always "changed" | Something writes into a tracked dir — check `.gitignore` |
 | `--include-all-dependents` not recognized | Upgrade Terramate (needs 2024+ build) |
-| Module-only edits don't trigger stacks | Function-based `source` paths can hide module changes; demo triggers on *live-unit* edits |
-
-## Further reading
-
-See [`OPERATOR_MANUAL.md`](OPERATOR_MANUAL.md) for the mental model, `generate` blocks, the `//`
-source gotcha, and CI integration details.
+| Module-only edits don't trigger stacks | Function-based `source` paths can hide module changes; demo triggers on *live-unit* edits. Plain relative `source` fixes detection but loses the `//` copy trick |

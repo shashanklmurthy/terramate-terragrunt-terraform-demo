@@ -2,6 +2,7 @@
 // Expects STACKS (newline-separated paths) and PLAN_FAILED (true|false) in the environment.
 
 const { execSync } = require("node:child_process");
+const path = require("node:path");
 
 const MAX_PLAN_CHARS = 60_000;
 
@@ -118,10 +119,12 @@ module.exports = async ({ github, context, core }) => {
     const header = headerFor(stack);
     let planText = "";
     try {
-      // Terragrunt runs Terraform in .terragrunt-cache; show resolves out.tfplan from the stack dir.
-      // Plan step uses -out "$(pwd)/out.tfplan" so the file also exists at ${stack}/out.tfplan.
-      planText = execSync("terragrunt show -no-color out.tfplan", {
-        cwd: stack,
+      const stackDir = path.join(process.env.GITHUB_WORKSPACE, stack);
+      const planFile = path.join(stackDir, "out.tfplan");
+      // Plan is written per-stack via: terramate run -- bash -c 'terragrunt plan -out "$(pwd)/out.tfplan" ...'
+      // Terragrunt show needs the absolute plan path (relative paths resolve inside .terragrunt-cache).
+      planText = execSync(`terragrunt show -no-color "${planFile}"`, {
+        cwd: stackDir,
         encoding: "utf8",
         maxBuffer: 10 * 1024 * 1024,
       });

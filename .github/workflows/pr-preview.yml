@@ -72,7 +72,7 @@ jobs:
             $TM_CHANGED \
             --continue-on-error \
             -- \
-            terragrunt plan -out "$(pwd)/out.tfplan" -lock=false -input=false
+            bash -c 'terragrunt plan -out "$(pwd)/out.tfplan" -lock=false -input=false'
 
       - name: Write per-stack plans to job summary
         if: always() && steps.list.outputs.has_stacks == 'true'
@@ -82,7 +82,7 @@ jobs:
             {
               echo "### Plan — \`${stack}\`"
               echo '```terraform'
-              ( cd "$stack" && terragrunt show -no-color out.tfplan ) 2>&1 || echo "(failed to render plan)"
+              ( cd "$stack" && terragrunt show -no-color "$(pwd)/out.tfplan" ) 2>&1 || echo "(failed to render plan)"
               echo '```'
               echo
             } >> "$GITHUB_STEP_SUMMARY"
