@@ -43,6 +43,7 @@ override.tf.json
 
 # CI/local plan artifacts written beside terragrunt units
 **/out.tfplan
+.github/plan-artifacts/
 
 # Ignore CLI configuration files
 .terraformrc

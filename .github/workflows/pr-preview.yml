@@ -19,12 +19,14 @@ jobs:
     environment: dev
     permissions:
       contents: read
-      pull-requests: write
+    outputs:
+      has_stacks: ${{ steps.list.outputs.has_stacks }}
+      stacks_json: ${{ steps.list.outputs.stacks_json }}
     env:
       TM_CHANGED: >-
         --changed --include-all-dependents
         --git-change-base origin/${{ github.base_ref }}
-      # Print raw terraform plan text in PR comments (no Terragrunt log prefixes).
+      PLAN_ARTIFACT_DIR: ${{ github.workspace }}/.github/plan-artifacts
       TG_TF_FORWARD_STDOUT: true
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
@@ -38,17 +40,20 @@ jobs:
         id: list
         run: |
           stacks="$(terramate list $TM_CHANGED --run-order)"
+          stacks_json="$(printf '%s\n' "$stacks" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+
           if [ -z "$stacks" ]; then
             echo "has_stacks=false" >> "$GITHUB_OUTPUT"
+            echo 'stacks_json=[]' >> "$GITHUB_OUTPUT"
           else
             echo "has_stacks=true" >> "$GITHUB_OUTPUT"
+            echo "stacks_json=$stacks_json" >> "$GITHUB_OUTPUT"
             {
               echo "stacks<<EOF"
               echo "$stacks"
               echo "EOF"
             } >> "$GITHUB_OUTPUT"
           fi
-
       - name: Initialize Terragrunt in changed stacks
         if: steps.list.outputs.has_stacks == 'true'
         run: |
@@ -66,42 +71,107 @@ jobs:
             -- \
             terragrunt validate
 
-      - name: Plan Terragrunt changes in changed stacks
+      - name: Plan changed stacks and capture output
         if: steps.list.outputs.has_stacks == 'true'
         id: plan
         run: |
+          mkdir -p "$PLAN_ARTIFACT_DIR"
           terramate run \
             $TM_CHANGED \
             --continue-on-error \
             -- \
-            bash -c 'terragrunt plan -out "$(pwd)/out.tfplan" -lock=false -input=false'
+            bash -c '
+              stack="${PWD#${GITHUB_WORKSPACE}/}"
+              slug="${stack//\//-}"
+              outfile="${PLAN_ARTIFACT_DIR}/${slug}.txt"
+              ecfile="${PLAN_ARTIFACT_DIR}/${slug}.exitcode"
+              terragrunt plan \
+                -out "$(pwd)/out.tfplan" \
+                -lock=false \
+                -input=false \
+                -no-color \
+                -detailed-exitcode \
+                2>&1 | tee "$outfile"
+              echo "${PIPESTATUS[0]}" > "$ecfile"
+            '
 
-      - name: Write per-stack plans to job summary
+      - name: Write captured plans to job summary
         if: always() && steps.list.outputs.has_stacks == 'true'
         run: |
           while IFS= read -r stack; do
             [ -z "$stack" ] && continue
+            slug="${stack//\//-}"
+            plan_file="${PLAN_ARTIFACT_DIR}/${slug}.txt"
             {
               echo "### Plan — \`${stack}\`"
-              echo '```diff'
-              node .github/scripts/render-plan-diff.cjs "$stack" "$(pwd)/$stack/out.tfplan" "$(pwd)" 2>&1 \
-                || echo "(failed to render plan)"
-              echo '```'
+              if [ -f "$plan_file" ]; then
+                echo '```'
+                cat "$plan_file"
+                echo '```'
+              else
+                echo "_No plan output captured for this stack._"
+              fi
               echo
             } >> "$GITHUB_STEP_SUMMARY"
           done <<< "${{ steps.list.outputs.stacks }}"
 
-      - name: Publish per-stack pull request comments
-        if: always()
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          STACKS: ${{ steps.list.outputs.stacks }}
-          PLAN_FAILED: ${{ steps.plan.outcome == 'failure' && 'true' || 'false' }}
+      - name: Upload plan artifacts
+        if: always() && steps.list.outputs.has_stacks == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          script: |
-            const postStackPlanComments = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/post-stack-plan-comments.cjs`);
-            await postStackPlanComments({ github, context, core });
+          name: plan-artifacts
+          path: .github/plan-artifacts/
+          if-no-files-found: warn
 
       - name: Fail if plan failed
         if: steps.list.outputs.has_stacks == 'true' && steps.plan.outcome == 'failure'
         run: exit 1
+
+  comment-plans:
+    needs: preview
+    if: always() && needs.preview.outputs.has_stacks == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    strategy:
+      matrix:
+        stack: ${{ fromJson(needs.preview.outputs.stacks_json) }}
+      max-parallel: 1
+    steps:
+      - name: Download plan artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: plan-artifacts
+          path: .github/plan-artifacts
+
+      - name: Load captured plan for stack
+        id: load
+        shell: bash
+        run: |
+          slug="${{ matrix.stack }}"
+          slug="${slug//\//-}"
+          plan_file="${{ github.workspace }}/.github/plan-artifacts/${slug}.txt"
+          ec_file="${{ github.workspace }}/.github/plan-artifacts/${slug}.exitcode"
+          if [ ! -f "$plan_file" ]; then
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          {
+            echo 'plan<<EOF'
+            cat "$plan_file"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+          echo "exitcode=$(cat "$ec_file" 2>/dev/null || echo 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Post plan comment
+        if: steps.load.outputs.missing != 'true'
+        uses: robburger/terraform-pr-commenter@72c6e45eced6641488a6cf3ff104b7b9bda9c66c # v1.5.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TF_WORKSPACE: ${{ matrix.stack }}
+          EXPAND_SUMMARY_DETAILS: "true"
+          HIGHLIGHT_CHANGES: "true"
+        with:
+          commenter_type: plan
+          commenter_input: ${{ steps.load.outputs.plan }}
+          commenter_exitcode: ${{ steps.load.outputs.exitcode }}

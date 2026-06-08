@@ -264,14 +264,17 @@ change-detection demo would be meaningless.
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `pr-preview` | PR → `main` | fmt + hclfmt + checkov; one `terramate run` plan; **one sticky PR comment per stack** |
+| `pr-preview` | PR → `main` | fmt + hclfmt + checkov; one `terramate run` plan; **one PR comment per changed stack** ([terraform-pr-commenter](https://github.com/robburger/terraform-pr-commenter)) |
 | `deploy` | push → `main` | single ordered `terramate run` apply (changed + dependents) |
 | `drift` | daily cron | `terramate run` + `plan -detailed-exitcode` on every stack; fails on drift |
 | `reconcile` | daily cron | ordered apply of `--tags reconcile` stacks |
 
-**PR comments:** One summary comment plus one sticky comment per changed stack (ASCII plan).
-Comments for stacks that drop out of the change set are removed on the next run. Rendered plan
-UI requires [Terramate Cloud](https://terramate.io/docs/cloud/integrations/github) + `--sync-preview`.
+**PR comments:** During plan, stdout for each changed stack is captured under
+`.github/plan-artifacts/` (e.g. `live-foundation.txt` + `live-foundation.exitcode`). A matrix job
+posts one comment per stack in Terramate run order via
+[terraform-pr-commenter](https://github.com/robburger/terraform-pr-commenter), using `TF_WORKSPACE`
+set to the stack path (e.g. `live/foundation`). The action replaces the previous comment for that
+workspace on each run.
 
 Drift detection in CI demonstrates the correct workflow shape but won't catch real drift until
 `root.hcl` uses a persistent remote backend (state survives between runs).
