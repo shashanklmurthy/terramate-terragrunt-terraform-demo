@@ -251,6 +251,9 @@ To refresh the baseline after re-applying locally: update files under `baseline/
 
 **PR comments:** Plan output is captured per changed stack (e.g. `live-shared-us-east-1-dev-platform.txt`)
 and posted with `TF_WORKSPACE` set to the stack path (e.g. `live/shared/us-east-1/dev/platform`).
+`terraform-pr-commenter` posts **two comments per stack** when a plan contains both resource changes and a
+`Changes to Outputs:` section — that is expected. `artifact_path` in outputs uses repo-relative paths
+(`.artifacts/<id>.json`) so CI does not noise the comments with laptop vs runner absolute paths.
 
 ## Troubleshooting
 

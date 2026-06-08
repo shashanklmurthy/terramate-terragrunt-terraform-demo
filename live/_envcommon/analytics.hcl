@@ -11,11 +11,11 @@ dependency "app_layer" {
     id            = "mock-app-layer-id"
     token         = "mock-app-layer-token"
     tags          = {}
-    artifact_path = "/tmp/mock-app-layer.json"
+    artifact_path = ".artifacts/mock-app-layer.json"
     summary = {
       id            = "mock-app-layer-id"
       token         = "mock-app-layer-token"
-      artifact_path = "/tmp/mock-app-layer.json"
+      artifact_path = ".artifacts/mock-app-layer.json"
     }
   }
 }

@@ -33,4 +33,9 @@ resource "local_file" "artifact" {
     token    = random_string.token.result
     upstream = var.upstream
   })
+
+  # Absolute filename differs per machine (laptop vs CI); content is what matters.
+  lifecycle {
+    ignore_changes = [filename]
+  }
 }

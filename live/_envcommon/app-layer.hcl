@@ -11,11 +11,11 @@ dependency "platform" {
     id            = "mock-platform-id"
     token         = "mock-platform-token"
     tags          = {}
-    artifact_path = "/tmp/mock-platform.json"
+    artifact_path = ".artifacts/mock-platform.json"
     summary = {
       id            = "mock-platform-id"
       token         = "mock-platform-token"
-      artifact_path = "/tmp/mock-platform.json"
+      artifact_path = ".artifacts/mock-platform.json"
     }
   }
 }
