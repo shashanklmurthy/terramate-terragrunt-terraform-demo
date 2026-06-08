@@ -16,6 +16,8 @@ dependency "app_layer" {
       id            = "mock-app-layer-id"
       token         = "mock-app-layer-token"
       artifact_path = ".artifacts/mock-app-layer.json"
+      tags          = {}
+      platform_tier = null
     }
   }
 }

@@ -16,6 +16,8 @@ dependency "platform" {
       id            = "mock-platform-id"
       token         = "mock-platform-token"
       artifact_path = ".artifacts/mock-platform.json"
+      tags          = {}
+      platform_tier = null
     }
   }
 }
