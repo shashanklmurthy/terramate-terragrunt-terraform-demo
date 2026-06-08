@@ -1,5 +1,14 @@
 # Operator manual
 
+## Tool versions
+
+All CLI versions are pinned in [`.tool-versions`](.tool-versions) — the single source of truth.
+
+**Local:** terraform and terragrunt via tfenv/tgenv (see [README.md](README.md#prerequisites) for
+setup). Install terramate separately (no tfenv/tgenv plugin), e.g. `brew install terramate`.
+
+**CI:** `.github/actions/setup-asdf` reads `.tool-versions` via asdf.
+
 ## Mental model
 
 Three tools, three jobs:
@@ -19,6 +28,7 @@ deployable, the `stack.tm.hcl` makes it orchestratable.
 2. `live/application` declares `dependency "foundation"` and feeds `dependency.foundation.outputs.summary`
    into its own `upstream` input.
 3. `live/reporting` declares `dependency "application"` and feeds its summary in turn.
+4. `live/standalone` has **no** `dependency` blocks — it is independent of the chain above.
 
 The `dependency` blocks do two things at once:
 - **Runtime:** Terragrunt fetches the upstream unit's outputs (with `mock_outputs` covering plan-before-apply).
@@ -34,7 +44,8 @@ The `dependency` blocks do two things at once:
 - Dependency filters only follow **data** dependencies (Terragrunt `dependency` blocks / Terramate
   output sharing). They ignore ordering-only relationships (`stack.before/after`, `dependencies.paths`).
   That's why our units use real `dependency` blocks, not just ordering hints.
-- Execution order always honors `after`, so a multi-stack run goes foundation → application → reporting.
+- Execution order always honors `after`. `standalone` has no `after` and nothing depends on it, so
+  it runs independently of the foundation → application → reporting chain.
 
 Canonical change-driven command:
 
@@ -104,14 +115,8 @@ change-detection demo would be meaningless. We write artifacts to `.artifacts/` 
 
 ## Common commands
 
-```bash
-terramate list                         # all stacks
-terramate list --run-order             # in dependency order
-terramate list --changed               # changed stacks only
-terramate experimental run-graph       # visualize the graph
-terramate run -- terragrunt plan       # plan everything, in order
-terramate run --changed --include-all-dependents -- terragrunt apply -auto-approve
-```
+See [README.md](README.md#common-commands) for the full command reference and change-detection
+verification walkthrough.
 
 ## Troubleshooting
 
