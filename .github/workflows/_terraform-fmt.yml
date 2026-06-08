@@ -1,0 +1,20 @@
+# Mirrors gp-nova _terraform-fmt (local demo: no private-module git config, no OIDC).
+name: _terraform-fmt
+on:
+  workflow_call:
+    inputs:
+      working-dir:
+        type: string
+        default: "modules"
+
+jobs:
+  fmt-check:
+    runs-on: ubuntu-latest
+    name: terraform fmt ${{ inputs.working-dir }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea53d8efaa4189211918 # v4.2.2
+      - uses: hashicorp/setup-terraform@b9cd54cb3e349558e5125b2eab9ebb7ad426cb48 # v3.1.2
+        with:
+          terraform_version: "1.11.4"
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive ${{ inputs.working-dir }}

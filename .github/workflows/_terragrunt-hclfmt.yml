@@ -1,0 +1,16 @@
+# Mirrors gp-nova _terragrunt-hclfmt.
+name: _terragrunt-hclfmt
+on:
+  workflow_call: {}
+
+jobs:
+  hclfmt-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea53d8efaa4189211918 # v4.2.2
+      - name: Install Terragrunt
+        run: |
+          curl -fsSL -o /usr/local/bin/terragrunt \
+            "https://github.com/gruntwork-io/terragrunt/releases/download/v0.77.22/terragrunt_linux_amd64"
+          chmod +x /usr/local/bin/terragrunt
+      - run: terragrunt hcl fmt --check
