@@ -1,0 +1,82 @@
+# Faithful to gp-nova _plan-or-apply-env: same input contract (environment, working-dir, apply,
+# lock, version-files) and the plan-comment behavior. The ONLY omission vs the org version is the
+# OIDC role-assumption step — local providers need no cloud auth. The `environment:` key is kept so
+# a protected GitHub Environment can act as the reviewer gate, exactly as in the org pipeline.
+name: _plan-or-apply-env
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        default: dev
+      working-dir:
+        required: true
+        type: string
+      apply:
+        type: boolean
+        default: false
+      lock:
+        type: boolean
+        default: true
+      terraform-version-file:
+        type: string
+        default: ".terraform-version"
+      terragrunt-version-file:
+        type: string
+        default: ".terragrunt-version"
+
+jobs:
+  terragrunt:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea53d8efaa4189211918 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tool versions
+        id: versions
+        run: |
+          echo "tf=$(cat ${{ inputs.terraform-version-file }})" >> "$GITHUB_OUTPUT"
+          echo "tg=$(cat ${{ inputs.terragrunt-version-file }})" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@b9cd54cb3e349558e5125b2eab9ebb7ad426cb48 # v3.1.2
+        with:
+          terraform_version: ${{ steps.versions.outputs.tf }}
+          terraform_wrapper: false
+
+      - name: Setup Terragrunt
+        run: |
+          curl -fsSL -o /usr/local/bin/terragrunt \
+            "https://github.com/gruntwork-io/terragrunt/releases/download/v${{ steps.versions.outputs.tg }}/terragrunt_linux_amd64"
+          chmod +x /usr/local/bin/terragrunt
+
+      - name: Terragrunt init
+        working-directory: ${{ inputs.working-dir }}
+        run: terragrunt init -input=false
+
+      - name: Terragrunt validate
+        if: ${{ inputs.apply != true }}
+        working-directory: ${{ inputs.working-dir }}
+        run: terragrunt validate
+
+      - name: Terragrunt plan
+        id: plan
+        working-directory: ${{ inputs.working-dir }}
+        run: terragrunt plan -out workspace.plan -lock=${{ inputs.lock }} -input=false
+
+      - name: Post plan (job summary)
+        if: always()
+        working-directory: ${{ inputs.working-dir }}
+        run: |
+          {
+            echo "### Plan — \`${{ inputs.working-dir }}\` (${{ inputs.environment }})"
+            echo '```'
+            terragrunt show -no-color workspace.plan 2>/dev/null || echo "(no plan)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Terragrunt apply
+        if: ${{ inputs.apply == true }}
+        working-directory: ${{ inputs.working-dir }}
+        run: terragrunt apply -auto-approve -input=false
