@@ -1,4 +1,4 @@
-# Scans the Terraform modules (the live/ dirs are pure Terragrunt HCL).
+# Scans the Terraform modules (deployable dirs are pure Terragrunt HCL).
 name: _checkov
 on:
   workflow_call:

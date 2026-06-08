@@ -10,6 +10,7 @@ module "labels" {
   project     = var.project
   environment = var.environment
   component   = var.component
+  tenant_id   = var.tenant_id
   extra_tags  = var.extra_tags
 }
 

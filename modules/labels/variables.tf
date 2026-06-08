@@ -13,6 +13,12 @@ variable "component" {
   type        = string
 }
 
+variable "tenant_id" {
+  description = "Optional customer/tenant identifier for single-tenant instances."
+  type        = string
+  default     = null
+}
+
 variable "extra_tags" {
   description = "Additional tags merged on top of the convention tags."
   type        = map(string)
