@@ -22,6 +22,7 @@ jobs:
     outputs:
       has_stacks: ${{ steps.list.outputs.has_stacks }}
       stacks_json: ${{ steps.list.outputs.stacks_json }}
+      terraform_version: ${{ steps.list.outputs.terraform_version }}
     env:
       TM_CHANGED: >-
         --changed --include-all-dependents
@@ -41,6 +42,8 @@ jobs:
         run: |
           stacks="$(terramate list $TM_CHANGED --run-order)"
           stacks_json="$(printf '%s\n' "$stacks" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+          terraform_version="$(awk '/^terraform / {print $2}' .tool-versions)"
+          echo "terraform_version=${terraform_version}" >> "$GITHUB_OUTPUT"
 
           if [ -z "$stacks" ]; then
             echo "has_stacks=false" >> "$GITHUB_OUTPUT"
@@ -144,28 +147,24 @@ jobs:
           name: plan-artifacts
           path: .github/plan-artifacts
 
-      - name: Load captured plan for stack
-        id: load
+      - name: Resolve plan file for stack
+        id: plan
         shell: bash
         run: |
           slug="${{ matrix.stack }}"
           slug="${slug//\//-}"
-          plan_file="${{ github.workspace }}/.github/plan-artifacts/${slug}.txt"
-          ec_file="${{ github.workspace }}/.github/plan-artifacts/${slug}.exitcode"
-          if [ ! -f "$plan_file" ]; then
+          plan_path=".github/plan-artifacts/${slug}.txt"
+          ec_file=".github/plan-artifacts/${slug}.exitcode"
+          if [ ! -f "$plan_path" ]; then
             echo "missing=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          {
-            echo 'plan<<EOF'
-            cat "$plan_file"
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          echo "plan_path=$plan_path" >> "$GITHUB_OUTPUT"
           echo "exitcode=$(cat "$ec_file" 2>/dev/null || echo 1)" >> "$GITHUB_OUTPUT"
 
       - name: Post plan comment
-        if: steps.load.outputs.missing != 'true'
-        uses: robburger/terraform-pr-commenter@72c6e45eced6641488a6cf3ff104b7b9bda9c66c # v1.5.0
+        if: steps.plan.outputs.missing != 'true'
+        uses: GetTerminus/terraform-pr-commenter@93a60116ff139d4e9b92b2b61ddc15ebfbdb89c6 # v3.0.3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TF_WORKSPACE: ${{ matrix.stack }}
@@ -173,5 +172,6 @@ jobs:
           HIGHLIGHT_CHANGES: "true"
         with:
           commenter_type: plan
-          commenter_input: ${{ steps.load.outputs.plan }}
-          commenter_exitcode: ${{ steps.load.outputs.exitcode }}
+          commenter_plan_path: ${{ steps.plan.outputs.plan_path }}
+          commenter_exitcode: ${{ steps.plan.outputs.exitcode }}
+          terraform_version: ${{ needs.preview.outputs.terraform_version }}
