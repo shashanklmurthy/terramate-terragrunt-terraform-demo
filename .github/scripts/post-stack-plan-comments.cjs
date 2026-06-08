@@ -3,6 +3,7 @@
 
 const { execSync } = require("node:child_process");
 const path = require("node:path");
+const { renderPlanDiff } = require("./render-plan-diff.cjs");
 
 const MAX_PLAN_CHARS = 60_000;
 
@@ -123,11 +124,7 @@ module.exports = async ({ github, context, core }) => {
       const planFile = path.join(stackDir, "out.tfplan");
       // Plan is written per-stack via: terramate run -- bash -c 'terragrunt plan -out "$(pwd)/out.tfplan" ...'
       // Terragrunt show needs the absolute plan path (relative paths resolve inside .terragrunt-cache).
-      planText = execSync(`terragrunt show -no-color "${planFile}"`, {
-        cwd: stackDir,
-        encoding: "utf8",
-        maxBuffer: 10 * 1024 * 1024,
-      });
+      planText = renderPlanDiff(stack, planFile, stackDir);
     } catch (error) {
       const detail = error.stdout?.toString() || error.stderr?.toString() || error.message;
       await upsertComment(
@@ -153,7 +150,7 @@ module.exports = async ({ github, context, core }) => {
 
     await upsertComment(
       header,
-      [`## Plan — \`${stack}\``, "", "```terraform", planText, "```"].join("\n"),
+      [`## Plan — \`${stack}\``, "", "```diff", planText, "```"].join("\n"),
     );
   }
 };

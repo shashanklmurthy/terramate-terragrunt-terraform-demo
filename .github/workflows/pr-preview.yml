@@ -24,6 +24,8 @@ jobs:
       TM_CHANGED: >-
         --changed --include-all-dependents
         --git-change-base origin/${{ github.base_ref }}
+      # Print raw terraform plan text in PR comments (no Terragrunt log prefixes).
+      TG_TF_FORWARD_STDOUT: true
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
         with:
@@ -51,7 +53,7 @@ jobs:
         if: steps.list.outputs.has_stacks == 'true'
         run: |
           terramate run \
-            --parallel 1 \
+            --parallel 10 \
             $TM_CHANGED \
             -- \
             terragrunt init -input=false -lock-timeout=5m
@@ -81,8 +83,9 @@ jobs:
             [ -z "$stack" ] && continue
             {
               echo "### Plan — \`${stack}\`"
-              echo '```terraform'
-              ( cd "$stack" && terragrunt show -no-color "$(pwd)/out.tfplan" ) 2>&1 || echo "(failed to render plan)"
+              echo '```diff'
+              node .github/scripts/render-plan-diff.cjs "$stack" "$(pwd)/$stack/out.tfplan" "$(pwd)" 2>&1 \
+                || echo "(failed to render plan)"
               echo '```'
               echo
             } >> "$GITHUB_STEP_SUMMARY"
