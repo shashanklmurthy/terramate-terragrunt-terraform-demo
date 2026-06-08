@@ -264,7 +264,7 @@ change-detection demo would be meaningless.
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `pr-preview` | PR → `main` | fmt + hclfmt + checkov; one `terramate run` plan; **one PR comment per changed stack** ([GetTerminus/terraform-pr-commenter](https://github.com/GetTerminus/terraform-pr-commenter)) |
+| `pr-preview` | PR → `main` | fmt + hclfmt + validate + checkov; one `terramate run` plan; **one PR comment per changed stack** ([GetTerminus/terraform-pr-commenter](https://github.com/GetTerminus/terraform-pr-commenter)) |
 | `deploy` | push → `main` | single ordered `terramate run` apply (changed + dependents) |
 | `drift` | daily cron | `terramate run` + `plan -detailed-exitcode` on every stack; fails on drift |
 | `reconcile` | daily cron | ordered apply of `--tags reconcile` stacks |
