@@ -13,6 +13,7 @@ output "tags" {
 locals {
   # Repo-relative path — portable across laptops and CI runners.
   artifact_rel_path = ".artifacts/${module.labels.id}.json"
+  platform_tier     = try(var.upstream.platform.tags["platform-tier"], try(var.upstream.app_layer.platform_tier, ""))
 }
 
 output "artifact_path" {
@@ -25,5 +26,12 @@ output "summary" {
     id            = module.labels.id
     token         = random_string.token.result
     artifact_path = local.artifact_rel_path
+    tags          = module.labels.tags
+    platform_tier = local.platform_tier != "" ? local.platform_tier : null
   }
+}
+
+output "upstream_chain" {
+  description = "Upstream summaries passed through this stack for transitive propagation demos."
+  value       = var.upstream
 }

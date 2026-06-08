@@ -44,10 +44,9 @@ modules/artifact  (layered: labels + random_string + local_file)
 | **Multi-tenant shared** | `live/shared/us-east-1/dev/*` | Shared platform brought up once for all tenants | `platform` → `app-layer` → `analytics` |
 | **Single-tenant dedicated** | `live/dedicated/<tenant>/us-east-1/dev/tenant-instance` | One Terragrunt module = one tenant instance | None (isolated per tenant) |
 
-Each chained shared unit exposes a `summary` output (consumed by Terragrunt `dependency` blocks).
-Committed JSON under `baseline/.artifacts/` is a frozen demo snapshot only — the module does not
-manage `local_file` resources (avoids `+ create` plan noise from content-hash replacement in PR comments).
-The next layer consumes that summary through a Terragrunt `dependency` block.
+Each chained shared unit exposes a `summary` output (`id`, `token`, `artifact_path`, `tags`) consumed by
+downstream `dependency` blocks, plus an `upstream_chain` output that echoes the full upstream map.
+Committed JSON under `baseline/.artifacts/` is a frozen demo snapshot only.
 
 Dedicated tenant instances embed `tenant_id` in resource IDs (e.g. `demo-acme-dev-tenant-instance`)
 and tags, but do not depend on the shared chain.
@@ -155,6 +154,33 @@ terramate run --changed --include-all-dependents -- terragrunt apply -auto-appro
 ```
 
 In CI, add `--git-change-base origin/main` (PRs) or `HEAD^` (push to main).
+
+### Propagate platform values through the chain
+
+`summary.tags` carries platform metadata downstream via Terragrunt `dependency`:
+
+```
+platform.summary.tags  →  app-layer.upstream.platform  →  analytics.upstream.app_layer
+                              ↓ upstream_chain output         ↓ upstream_chain output
+```
+
+**On a PR (baseline seeded):** baseline is intentionally **stale** on downstream stacks — platform
+state has `platform-tier = baseline`, but app-layer `upstream_chain` / `summary.platform_tier`
+were captured before that propagated. A PR that bumps platform to `premium` therefore shows:
+
+- `platform` — `~ platform-tier` on tags/summary
+- `app-layer` — `~ upstream_chain.platform.tags` (+ `platform-tier = baseline` from applied platform state) and `+ summary.platform_tier = baseline`
+- `analytics` — picks up `platform_tier` after app-layer is applied
+
+**After apply in order** (`platform` → `app-layer` → `analytics`):
+
+```bash
+terramate run --tags reconcile -- terragrunt apply -auto-approve -input=false   # platform + app-layer
+terramate run --include-all-dependents live/shared/us-east-1/dev/platform -- \
+  terragrunt apply -auto-approve -input=false   # or apply the full changed chain
+terragrunt plan   # in app-layer: upstream_chain.platform.tags picks up platform-tier
+                  # in analytics: upstream_chain.app_layer.tags includes propagated values
+```
 
 ### Verify transitive change detection
 
