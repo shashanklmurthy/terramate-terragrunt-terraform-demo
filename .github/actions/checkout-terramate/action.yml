@@ -1,32 +1,39 @@
-# Fetch the default branch (and optionally deepen history) after actions/checkout.
+# Fetch origin/main (terramate.config.git.default_branch) after actions/checkout.
 # Local actions cannot run before checkout — callers must checkout first.
 name: Fetch base branch for Terramate
-description: Fetch origin/main (or PR base) for Terramate git safeguards and --changed
+description: Ensure refs/remotes/origin/main exists for Terramate git safeguards
 inputs:
   history_depth:
     description: >-
-      Commits to fetch on the base branch. Use 1 for lint/validate jobs.
-      Use 100 (or higher) when running Terramate --changed --git-change-base.
+      Commits to fetch on main. Use 0 for full history (--changed / merge-base).
+      Use 1 for lint/validate jobs that disable git-out-of-sync.
     required: false
     default: "1"
 runs:
   using: composite
   steps:
-    - name: Fetch base branch for Terramate
+    - name: Fetch origin/main for Terramate
       shell: bash
       env:
         HISTORY_DEPTH: ${{ inputs.history_depth }}
+        DEFAULT_BRANCH: main
       run: |
         set -euo pipefail
-        base_ref="${{ github.base_ref }}"
-        if [ -z "$base_ref" ]; then
-          base_ref="main"
-        fi
         head_ref="${{ github.head_ref }}"
 
-        git fetch --no-tags --prune --depth="${HISTORY_DEPTH}" origin "${base_ref}"
-
-        # Deepen the PR branch too when change detection needs a merge-base.
-        if [ "${HISTORY_DEPTH}" -gt 1 ] && [ -n "${head_ref}" ]; then
-          git fetch --no-tags --prune --depth="${HISTORY_DEPTH}" origin "${head_ref}"
+        depth_args=()
+        if [ "${HISTORY_DEPTH}" != "0" ]; then
+          depth_args=(--depth="${HISTORY_DEPTH}")
         fi
+
+        # Explicit refspec: shallow checkout often omits refs/remotes/origin/main.
+        git fetch --no-tags --prune "${depth_args[@]}" \
+          origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+
+        # Deepen the PR branch when change detection needs a merge-base.
+        if [ "${HISTORY_DEPTH}" != "0" ] && [ "${HISTORY_DEPTH}" != "1" ] && [ -n "${head_ref}" ]; then
+          git fetch --no-tags --prune --depth="${HISTORY_DEPTH}" \
+            origin "+refs/heads/${head_ref}:refs/remotes/origin/${head_ref}"
+        fi
+
+        git show-ref --verify --quiet "refs/remotes/origin/${DEFAULT_BRANCH}"

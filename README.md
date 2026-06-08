@@ -256,6 +256,7 @@ and posted with `TF_WORKSPACE` set to the stack path (e.g. `live/shared/us-east-
 
 | Symptom | Fix |
 |---------|-----|
+| `git-out-of-sync` / unable to reach `origin/main` in CI | PR branches are not rebased on `main`; CI sets `TM_DISABLE_SAFEGUARDS=git-out-of-sync`. Locally: `git fetch origin main && git rebase origin/main` |
 | `Error: repository has untracked files` | Commit or stash; Terramate refuses to run with dirty git |
 | `dependency ... has no outputs` | Run full apply once, or rely on `mock_outputs` for plan |
 | Every stack always "changed" | Something writes into a tracked dir — check `.gitignore` |
