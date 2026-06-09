@@ -17,119 +17,16 @@ jobs:
     uses: ./.github/workflows/_checkov.yml
 
   preview:
-    runs-on: ubuntu-latest
-    environment: dev
+    uses: ./.github/workflows/_plan-or-apply-env.yml
+    with:
+      mode: plan
+      environment: dev
+      git-change-base: origin/${{ github.base_ref }}
+      seed-baseline: true
+      disable-git-safeguard: true
+      checkout-ref: ${{ github.head_ref || github.ref }}
     permissions:
       contents: read
-    outputs:
-      has_stacks: ${{ steps.list.outputs.has_stacks }}
-      stacks_json: ${{ steps.list.outputs.stacks_json }}
-      terraform_version: ${{ steps.list.outputs.terraform_version }}
-    env:
-      TM_CHANGED: >-
-        --changed --include-all-dependents
-        --git-change-base origin/${{ github.base_ref }}
-      PLAN_ARTIFACT_DIR: ${{ github.workspace }}/.github/plan-artifacts
-      TG_TF_FORWARD_STDOUT: true
-      # PR heads are intentionally behind/ahead of main; git-out-of-sync is for local dev.
-      TM_DISABLE_SAFEGUARDS: git-out-of-sync
-    steps:
-      # Terramate --changed needs full history (https://terramate.io/docs/cli/automation/github-actions).
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
-        with:
-          ref: ${{ github.head_ref || github.ref }}
-          fetch-depth: 0
-
-      # Seed baseline/ for incremental plans. Plans read applied upstream state only — downstream
-      # stack comments show blast radius + staleness; full propagation happens on merge (deploy).
-      - uses: ./.github/actions/seed-demo-baseline
-
-      - uses: ./.github/actions/setup-asdf
-
-      - name: List changed stacks
-        id: list
-        run: |
-          stacks="$(terramate list $TM_CHANGED --run-order)"
-          stacks_json="$(printf '%s\n' "$stacks" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
-          terraform_version="$(awk '/^terraform / {print $2}' .tool-versions)"
-          echo "terraform_version=${terraform_version}" >> "$GITHUB_OUTPUT"
-
-          if [ -z "$stacks" ]; then
-            echo "has_stacks=false" >> "$GITHUB_OUTPUT"
-            echo 'stacks_json=[]' >> "$GITHUB_OUTPUT"
-          else
-            echo "has_stacks=true" >> "$GITHUB_OUTPUT"
-            echo "stacks_json=$stacks_json" >> "$GITHUB_OUTPUT"
-            {
-              echo "stacks<<EOF"
-              echo "$stacks"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
-          fi
-      - name: Initialize Terragrunt in changed stacks
-        if: steps.list.outputs.has_stacks == 'true'
-        run: |
-          terramate run \
-            --parallel 10 \
-            $TM_CHANGED \
-            -- \
-            terragrunt init -input=false -lock-timeout=5m
-
-      - name: Plan changed stacks and capture output
-        if: steps.list.outputs.has_stacks == 'true'
-        id: plan
-        run: |
-          mkdir -p "$PLAN_ARTIFACT_DIR"
-          terramate run \
-            $TM_CHANGED \
-            --continue-on-error \
-            -- \
-            bash -c '
-              stack="${PWD#${GITHUB_WORKSPACE}/}"
-              slug="${stack//\//-}"
-              outfile="${PLAN_ARTIFACT_DIR}/${slug}.txt"
-              ecfile="${PLAN_ARTIFACT_DIR}/${slug}.exitcode"
-              terragrunt plan \
-                -out "$(pwd)/out.tfplan" \
-                -lock=false \
-                -input=false \
-                -no-color \
-                -detailed-exitcode \
-                2>&1 | tee "$outfile"
-              echo "${PIPESTATUS[0]}" > "$ecfile"
-            '
-
-      - name: Write captured plans to job summary
-        if: always() && steps.list.outputs.has_stacks == 'true'
-        run: |
-          while IFS= read -r stack; do
-            [ -z "$stack" ] && continue
-            slug="${stack//\//-}"
-            plan_file="${PLAN_ARTIFACT_DIR}/${slug}.txt"
-            {
-              echo "### Plan — \`${stack}\`"
-              if [ -f "$plan_file" ]; then
-                echo '```'
-                cat "$plan_file"
-                echo '```'
-              else
-                echo "_No plan output captured for this stack._"
-              fi
-              echo
-            } >> "$GITHUB_STEP_SUMMARY"
-          done <<< "${{ steps.list.outputs.stacks }}"
-
-      - name: Upload plan artifacts
-        if: always() && steps.list.outputs.has_stacks == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: plan-artifacts
-          path: .github/plan-artifacts/
-          if-no-files-found: warn
-
-      - name: Fail if plan failed
-        if: steps.list.outputs.has_stacks == 'true' && steps.plan.outcome == 'failure'
-        run: exit 1
 
   comment-plans:
     needs: preview

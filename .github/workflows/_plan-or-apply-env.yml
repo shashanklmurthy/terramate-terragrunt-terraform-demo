@@ -1,6 +1,5 @@
-# The `environment:` key is kept so
-# a protected GitHub Environment can act as the reviewer gate.
-# Tool versions come from .tool-versions via the setup-asdf composite action.
+# Terramate orchestration for changed stacks — plan (PR preview) or apply (deploy).
+# Callers pass `mode` and git/PR-specific options; behavior matches the former inline jobs.
 name: _plan-or-apply-env
 on:
   workflow_call:
@@ -8,53 +7,166 @@ on:
       environment:
         type: string
         default: dev
-      working-dir:
-        required: true
+      mode:
         type: string
-      apply:
+        required: true
+        description: "Terramate operation: plan or apply"
+      git-change-base:
+        type: string
+        required: true
+        description: "Git ref passed to terramate --git-change-base (e.g. origin/main or HEAD^)"
+      seed-baseline:
         type: boolean
         default: false
-      lock:
+        description: "Copy baseline/ into runtime paths before plan (PR preview only)"
+      disable-git-safeguard:
         type: boolean
-        default: true
+        default: false
+        description: "Set TM_DISABLE_SAFEGUARDS=git-out-of-sync (PR branches vs main)"
+      checkout-ref:
+        type: string
+        default: ""
+        description: "Optional git ref for checkout (PR head); empty uses the triggering ref"
+    outputs:
+      has_stacks:
+        description: "Whether terramate list found any changed stacks (plan mode)"
+        value: ${{ jobs.terramate.outputs.has_stacks }}
+      stacks_json:
+        description: "JSON array of changed stack paths (plan mode)"
+        value: ${{ jobs.terramate.outputs.stacks_json }}
+      terraform_version:
+        description: "Terraform version from .tool-versions (plan mode)"
+        value: ${{ jobs.terramate.outputs.terraform_version }}
+      stacks:
+        description: "Newline-separated changed stack paths (plan mode job summary)"
+        value: ${{ jobs.terramate.outputs.stacks }}
+
+permissions:
+  contents: read
 
 jobs:
-  terragrunt:
+  terramate:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    outputs:
+      has_stacks: ${{ steps.list.outputs.has_stacks }}
+      stacks_json: ${{ steps.list.outputs.stacks_json }}
+      terraform_version: ${{ steps.list.outputs.terraform_version }}
+      stacks: ${{ steps.list.outputs.stacks }}
+    env:
+      TM_CHANGED: >-
+        --changed --include-all-dependents
+        --git-change-base ${{ inputs.git-change-base }}
+      PLAN_ARTIFACT_DIR: ${{ github.workspace }}/.github/plan-artifacts
+      TG_TF_FORWARD_STDOUT: ${{ inputs.mode == 'plan' && 'true' || '' }}
+      TM_DISABLE_SAFEGUARDS: ${{ inputs.disable-git-safeguard && 'git-out-of-sync' || '' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
+        if: inputs.checkout-ref == ''
         with:
           fetch-depth: 0
 
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 #v6.0.3
+        if: inputs.checkout-ref != ''
+        with:
+          ref: ${{ inputs.checkout-ref }}
+          fetch-depth: 0
+
+      - uses: ./.github/actions/seed-demo-baseline
+        if: inputs.seed-baseline
+
       - uses: ./.github/actions/setup-asdf
 
-      - name: Terragrunt init
-        working-directory: ${{ inputs.working-dir }}
-        run: terragrunt init -input=false
-
-      - name: Terragrunt validate
-        if: ${{ inputs.apply != true }}
-        working-directory: ${{ inputs.working-dir }}
-        run: terragrunt validate
-
-      - name: Terragrunt plan
-        id: plan
-        working-directory: ${{ inputs.working-dir }}
-        run: terragrunt plan -out workspace.plan -lock=${{ inputs.lock }} -input=false
-
-      - name: Post plan (job summary)
-        if: always()
-        working-directory: ${{ inputs.working-dir }}
+      - name: List changed stacks
+        if: inputs.mode == 'plan'
+        id: list
         run: |
-          {
-            echo "### Plan — \`${{ inputs.working-dir }}\` (${{ inputs.environment }})"
-            echo '```'
-            terragrunt show -no-color workspace.plan 2>/dev/null || echo "(no plan)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          stacks="$(terramate list $TM_CHANGED --run-order)"
+          stacks_json="$(printf '%s\n' "$stacks" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+          terraform_version="$(awk '/^terraform / {print $2}' .tool-versions)"
+          echo "terraform_version=${terraform_version}" >> "$GITHUB_OUTPUT"
 
-      - name: Terragrunt apply
-        if: ${{ inputs.apply == true }}
-        working-directory: ${{ inputs.working-dir }}
-        run: terragrunt apply -auto-approve -input=false
+          if [ -z "$stacks" ]; then
+            echo "has_stacks=false" >> "$GITHUB_OUTPUT"
+            echo 'stacks_json=[]' >> "$GITHUB_OUTPUT"
+          else
+            echo "has_stacks=true" >> "$GITHUB_OUTPUT"
+            echo "stacks_json=$stacks_json" >> "$GITHUB_OUTPUT"
+            {
+              echo "stacks<<EOF"
+              echo "$stacks"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Initialize Terragrunt in changed stacks
+        if: inputs.mode == 'plan' && steps.list.outputs.has_stacks == 'true'
+        run: |
+          terramate run \
+            --parallel 10 \
+            $TM_CHANGED \
+            -- \
+            terragrunt init -input=false -lock-timeout=5m
+
+      - name: Plan changed stacks and capture output
+        if: inputs.mode == 'plan' && steps.list.outputs.has_stacks == 'true'
+        id: plan
+        run: |
+          mkdir -p "$PLAN_ARTIFACT_DIR"
+          terramate run \
+            $TM_CHANGED \
+            --continue-on-error \
+            -- \
+            bash -c '
+              stack="${PWD#${GITHUB_WORKSPACE}/}"
+              slug="${stack//\//-}"
+              outfile="${PLAN_ARTIFACT_DIR}/${slug}.txt"
+              ecfile="${PLAN_ARTIFACT_DIR}/${slug}.exitcode"
+              terragrunt plan \
+                -out "$(pwd)/out.tfplan" \
+                -lock=false \
+                -input=false \
+                -no-color \
+                -detailed-exitcode \
+                2>&1 | tee "$outfile"
+              echo "${PIPESTATUS[0]}" > "$ecfile"
+            '
+
+      - name: Write captured plans to job summary
+        if: always() && inputs.mode == 'plan' && steps.list.outputs.has_stacks == 'true'
+        run: |
+          while IFS= read -r stack; do
+            [ -z "$stack" ] && continue
+            slug="${stack//\//-}"
+            plan_file="${PLAN_ARTIFACT_DIR}/${slug}.txt"
+            {
+              echo "### Plan — \`${stack}\`"
+              if [ -f "$plan_file" ]; then
+                echo '```'
+                cat "$plan_file"
+                echo '```'
+              else
+                echo "_No plan output captured for this stack._"
+              fi
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          done <<< "${{ steps.list.outputs.stacks }}"
+
+      - name: Upload plan artifacts
+        if: always() && inputs.mode == 'plan' && steps.list.outputs.has_stacks == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: plan-artifacts
+          path: .github/plan-artifacts/
+          if-no-files-found: warn
+
+      - name: Fail if plan failed
+        if: inputs.mode == 'plan' && steps.list.outputs.has_stacks == 'true' && steps.plan.outcome == 'failure'
+        run: exit 1
+
+      - name: Apply changed stacks, in dependency order
+        if: inputs.mode == 'apply'
+        run: |
+          terramate run --changed --include-all-dependents \
+            --git-change-base "${{ inputs.git-change-base }}" -- \
+            terragrunt apply -auto-approve -input=false
