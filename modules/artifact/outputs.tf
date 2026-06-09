@@ -14,11 +14,12 @@ locals {
   # Repo-relative path — portable across laptops and CI runners.
   artifact_rel_path = ".artifacts/${module.labels.id}.json"
   # Upstream chain wins when present (last entry = root platform). Local is the fallback (platform root).
+  # Nullable: dedicated tenant stacks have neither upstream nor a local contract.
   last_upstream_contract_version = length(var.upstream) > 0 ? try(
     var.upstream[length(var.upstream) - 1].contract_version,
     null,
   ) : null
-  contract_version = coalesce(local.last_upstream_contract_version, var.contract_version)
+  contract_version = local.last_upstream_contract_version != null ? local.last_upstream_contract_version : var.contract_version
 }
 
 output "artifact_path" {

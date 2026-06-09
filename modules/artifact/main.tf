@@ -23,6 +23,6 @@ resource "random_string" "token" {
   # surfaces in the main plan section (not only output diffs).
   keepers = {
     id               = module.labels.id
-    contract_version = coalesce(local.contract_version, "")
+    contract_version = local.contract_version != null ? local.contract_version : ""
   }
 }
