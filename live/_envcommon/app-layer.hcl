@@ -8,16 +8,17 @@ dependency "platform" {
 
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan", "fmt", "show", "output"]
   mock_outputs = {
-    id            = "mock-platform-id"
-    token         = "mock-platform-token"
-    tags          = {}
-    artifact_path = ".artifacts/mock-platform.json"
+    id             = "mock-platform-id"
+    token          = "mock-platform-token"
+    tags           = {}
+    artifact_path  = ".artifacts/mock-platform.json"
+    upstream_chain = []
     summary = {
-      id            = "mock-platform-id"
-      token         = "mock-platform-token"
-      artifact_path = ".artifacts/mock-platform.json"
-      tags          = {}
-      platform_tier = null
+      id               = "mock-platform-id"
+      token            = "mock-platform-token"
+      artifact_path    = ".artifacts/mock-platform.json"
+      tags             = {}
+      contract_version = null
     }
   }
 }
@@ -25,7 +26,5 @@ dependency "platform" {
 inputs = {
   component  = "app-layer"
   output_dir = "${get_repo_root()}/.artifacts"
-  upstream = {
-    platform = dependency.platform.outputs.summary
-  }
+  upstream   = [dependency.platform.outputs.summary]
 }

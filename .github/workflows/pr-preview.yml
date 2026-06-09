@@ -40,7 +40,8 @@ jobs:
           ref: ${{ github.head_ref || github.ref }}
           fetch-depth: 0
 
-      # Seed runtime state and artifacts from baseline/ for demoing incremental plans.
+      # Seed baseline/ for incremental plans. Plans read applied upstream state only — downstream
+      # stack comments show blast radius + staleness; full propagation happens on merge (deploy).
       - uses: ./.github/actions/seed-demo-baseline
 
       - uses: ./.github/actions/setup-asdf

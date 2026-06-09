@@ -19,7 +19,7 @@ modules/labels    (leaf: naming + tags, no resources)
         ▲
         │ used by
         │
-modules/artifact  (layered: labels + random_string + local_file)
+modules/artifact  (layered: labels + random_string)
         ▲
         │ sourced by every deployable unit via live/_envcommon/
         │
@@ -44,8 +44,12 @@ modules/artifact  (layered: labels + random_string + local_file)
 | **Multi-tenant shared** | `live/shared/us-east-1/dev/*` | Shared platform brought up once for all tenants | `platform` → `app-layer` → `analytics` |
 | **Single-tenant dedicated** | `live/dedicated/<tenant>/us-east-1/dev/tenant-instance` | One Terragrunt module = one tenant instance | None (isolated per tenant) |
 
-Each chained shared unit exposes a `summary` output (`id`, `token`, `artifact_path`, `tags`) consumed by
-downstream `dependency` blocks, plus an `upstream_chain` output that echoes the full upstream map.
+Each chained shared unit exposes a `summary` output (`id`, `token`, `artifact_path`, `tags`,
+`contract_version`) consumed by downstream `dependency` blocks, plus an `upstream_chain` list output that
+echoes the full upstream chain (nearest dependency first). The `random_string.token` resource re-rolls when `contract_version`
+changes (via `keepers`) so propagation can surface in the **resource** section of plans — but
+only once a stack's **applied** upstream state is ahead of what that stack last recorded (see
+[PR vs deploy expectations](#pr-vs-deploy-expectations) below).
 Committed JSON under `baseline/.artifacts/` is a frozen demo snapshot only.
 
 Dedicated tenant instances embed `tenant_id` in resource IDs (e.g. `demo-acme-dev-tenant-instance`)
@@ -157,29 +161,66 @@ In CI, add `--git-change-base origin/main` (PRs) or `HEAD^` (push to main).
 
 ### Propagate platform values through the chain
 
-`summary.tags` carries platform metadata downstream via Terragrunt `dependency`:
+Platform sets `contract_version` locally (e.g. `"2024-06"`). Downstream stacks prepend each
+dependency's summary to the front of an `upstream` list; the module takes the **last** entry's
+`contract_version` when upstream is non-empty, otherwise falls back to the local input (platform
+root only):
 
 ```
-platform.summary.tags  →  app-layer.upstream.platform  →  analytics.upstream.app_layer
-                              ↓ upstream_chain output         ↓ upstream_chain output
+platform.summary  →  app-layer upstream: [platform]
+                 →  analytics upstream: [app_layer, platform]   # concat at each layer
+                              ↓ upstream_chain output (same list, passed through)
 ```
 
-**On a PR (baseline seeded):** baseline is intentionally **stale** on downstream stacks — platform
-state has `platform-tier = baseline`, but app-layer `upstream_chain` / `summary.platform_tier`
-were captured before that propagated. A PR that bumps platform to `premium` therefore shows:
+Terragrunt wiring (analytics example):
 
-- `platform` — `~ platform-tier` on tags/summary
-- `app-layer` — `~ upstream_chain.platform.tags` (+ `platform-tier = baseline` from applied platform state) and `+ summary.platform_tier = baseline`
-- `analytics` — picks up `platform_tier` after app-layer is applied
+```hcl
+upstream = concat(
+  [dependency.app_layer.outputs.summary],
+  dependency.app_layer.outputs.upstream_chain,
+)
+```
 
-**After apply in order** (`platform` → `app-layer` → `analytics`):
+Terragrunt `dependency` blocks read **applied upstream state**, not pending code changes from a
+sibling stack's plan. That is why propagation is **staged**: each layer picks up new values only
+after the upstream stack has been applied.
+
+#### PR vs deploy expectations
+
+This demo intentionally does **not** apply upstream stacks during PR preview — no per-PR sandboxes,
+no sequential apply-before-review in CI. PR plans are an honest partial view; full propagation
+shows up after **ordered apply on merge** (`deploy` workflow).
+
+| Phase | What to look for |
+|-------|------------------|
+| **PR plan (`pr-preview`)** | Terramate lists `platform`, `app-layer`, and `analytics`. **Platform** is the headline: `~ contract_version` + `-/+ random_string.token`. Downstream stacks may show output drift (`~ upstream_chain`, `~ summary.contract_version`) or partial token changes against **baseline** upstream state — not the full pending version from the PR code. |
+| **Deploy (merge to `main`)** | `deploy` applies in dependency order. Each stack reads freshly applied upstream outputs; token keepers re-roll stack by stack until the chain is in sync. |
+| **After full apply** | Plans are clean. Re-seed `baseline/` if you want the next PR demo to start from this snapshot. |
+
+**Example PR** (baseline seeded, code bumps `contract_version` to `"2025-01"` while baseline state
+still has `"2024-06"`):
+
+- `platform` — `~ contract_version` on summary and `-/+ random_string.token`
+- `app-layer` — may show `~ upstream_chain` / `~ summary.contract_version` and sometimes
+  `-/+ random_string.token` for drift vs **applied** baseline upstream (`null → 2024-06`), not
+  `→ 2025-01` until platform is applied on merge
+- `analytics` — often quiet on resources until app-layer has been applied with a new
+  `contract_version`
+
+**Walk through full propagation locally** (after seeding baseline):
 
 ```bash
-terramate run --tags reconcile -- terragrunt apply -auto-approve -input=false   # platform + app-layer
+terramate run live/shared/us-east-1/dev/platform -- terragrunt apply -auto-approve -input=false
+terramate run live/shared/us-east-1/dev/app-layer -- terragrunt plan -input=false   # now sees applied version
+terramate run live/shared/us-east-1/dev/app-layer -- terragrunt apply -auto-approve -input=false
+terramate run live/shared/us-east-1/dev/analytics -- terragrunt plan -input=false
+```
+
+Or apply the whole changed chain in one go (same as `deploy`):
+
+```bash
 terramate run --include-all-dependents live/shared/us-east-1/dev/platform -- \
-  terragrunt apply -auto-approve -input=false   # or apply the full changed chain
-terragrunt plan   # in app-layer: upstream_chain.platform.tags picks up platform-tier
-                  # in analytics: upstream_chain.app_layer.tags includes propagated values
+  terragrunt apply -auto-approve -input=false
 ```
 
 ### Verify transitive change detection
@@ -280,8 +321,11 @@ To refresh the baseline after re-applying locally: update files under `baseline/
 **PR comments:** Plan output is captured per changed stack (e.g. `live-shared-us-east-1-dev-platform.txt`)
 and posted with `TF_WORKSPACE` set to the stack path (e.g. `live/shared/us-east-1/dev/platform`).
 `terraform-pr-commenter` may post **two comments per stack** (resource plan + `Changes to Outputs:`).
-Tag-only demo edits should show **output changes only** (e.g. `platform-tier`, `cost-center`), not
-`+ create` for artifact files.
+
+Read the comments with staged propagation in mind: **platform** shows the intended change; **app-layer**
+and **analytics** comments mean "these stacks are in Terramate's blast radius and will reconcile
+on deploy," not "full upstream values already visible in this plan." A `contract_version` bump on
+platform should show **`~ contract_version`** and token re-roll, not `+ create` for artifact files.
 
 ## Troubleshooting
 

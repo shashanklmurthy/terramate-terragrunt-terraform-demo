@@ -13,7 +13,12 @@ output "tags" {
 locals {
   # Repo-relative path — portable across laptops and CI runners.
   artifact_rel_path = ".artifacts/${module.labels.id}.json"
-  platform_tier     = try(var.upstream.platform.tags["platform-tier"], try(var.upstream.app_layer.platform_tier, ""))
+  # Upstream chain wins when present (last entry = root platform). Local is the fallback (platform root).
+  last_upstream_contract_version = length(var.upstream) > 0 ? try(
+    var.upstream[length(var.upstream) - 1].contract_version,
+    null,
+  ) : null
+  contract_version = coalesce(local.last_upstream_contract_version, var.contract_version)
 }
 
 output "artifact_path" {
@@ -23,15 +28,15 @@ output "artifact_path" {
 output "summary" {
   description = "Compact object consumed by downstream stacks via Terragrunt dependency blocks."
   value = {
-    id            = module.labels.id
-    token         = random_string.token.result
-    artifact_path = local.artifact_rel_path
-    tags          = module.labels.tags
-    platform_tier = local.platform_tier != "" ? local.platform_tier : null
+    id               = module.labels.id
+    token            = random_string.token.result
+    artifact_path    = local.artifact_rel_path
+    tags             = module.labels.tags
+    contract_version = local.contract_version
   }
 }
 
 output "upstream_chain" {
-  description = "Upstream summaries passed through this stack for transitive propagation demos."
+  description = "Upstream summaries nearest-first, passed through for transitive propagation demos."
   value       = var.upstream
 }
