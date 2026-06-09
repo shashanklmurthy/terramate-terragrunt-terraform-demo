@@ -6,5 +6,5 @@ terraform {
 inputs = {
   component  = "tenant-instance"
   output_dir = "${get_repo_root()}/.artifacts"
-  upstream   = {}
+  upstream   = []
 }

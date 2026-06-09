@@ -26,8 +26,14 @@ variable "output_dir" {
   type        = string
 }
 
+variable "contract_version" {
+  description = "Local contract version fallback; used only when upstream is empty (platform root). Downstream stacks inherit from the upstream chain instead."
+  type        = string
+  default     = null
+}
+
 variable "upstream" {
-  description = "Arbitrary data from upstream stacks, embedded into this artifact to prove the data flow."
-  type        = any
-  default     = {}
+  description = "Upstream stack summaries, nearest dependency first. Each layer prepends its dependency to the front of the chain passed downstream."
+  type        = list(any)
+  default     = []
 }

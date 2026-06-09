@@ -19,8 +19,10 @@ resource "random_string" "token" {
   special = false
   upper   = false
 
-  # Re-roll the token whenever the identity changes, so dependents observe a new value.
+  # Re-roll when identity or propagated contract_version changes so dependency drift
+  # surfaces in the main plan section (not only output diffs).
   keepers = {
-    id = module.labels.id
+    id               = module.labels.id
+    contract_version = coalesce(local.contract_version, "")
   }
 }

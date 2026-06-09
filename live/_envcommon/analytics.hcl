@@ -8,16 +8,17 @@ dependency "app_layer" {
 
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan", "fmt", "show", "output"]
   mock_outputs = {
-    id            = "mock-app-layer-id"
-    token         = "mock-app-layer-token"
-    tags          = {}
-    artifact_path = ".artifacts/mock-app-layer.json"
+    id             = "mock-app-layer-id"
+    token          = "mock-app-layer-token"
+    tags           = {}
+    artifact_path  = ".artifacts/mock-app-layer.json"
+    upstream_chain = []
     summary = {
-      id            = "mock-app-layer-id"
-      token         = "mock-app-layer-token"
-      artifact_path = ".artifacts/mock-app-layer.json"
-      tags          = {}
-      platform_tier = null
+      id               = "mock-app-layer-id"
+      token            = "mock-app-layer-token"
+      artifact_path    = ".artifacts/mock-app-layer.json"
+      tags             = {}
+      contract_version = null
     }
   }
 }
@@ -25,7 +26,8 @@ dependency "app_layer" {
 inputs = {
   component  = "analytics"
   output_dir = "${get_repo_root()}/.artifacts"
-  upstream = {
-    app_layer = dependency.app_layer.outputs.summary
-  }
+  upstream = concat(
+    [dependency.app_layer.outputs.summary],
+    dependency.app_layer.outputs.upstream_chain,
+  )
 }
